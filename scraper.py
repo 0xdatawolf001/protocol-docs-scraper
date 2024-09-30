@@ -12,6 +12,9 @@ import json
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
+# Add this near the top of the script
+IGNORED_SUFFIXES = ['.rst']  # Add more suffixes here as needed
+
 @st.cache_data
 def crawl_and_scrape(root_domain):
     visited_urls = set()
@@ -36,26 +39,39 @@ def crawl_and_scrape(root_domain):
     # Crawling
     while queue:
         url = queue.pop(0)
-        if not url_pattern.match(url) or url in visited_urls:
+        
+        # Parse the URL
+        parsed_url = urlparse(url)
+        
+        # Remove the fragment from the URL
+        url_without_fragment = parsed_url._replace(fragment='').geturl()
+        
+        # Check if the URL should be ignored based on its suffix
+        if any(url_without_fragment.endswith(suffix) for suffix in IGNORED_SUFFIXES):
             continue
         
-        visited_urls.add(url)
+        if not url_pattern.match(url_without_fragment) or url_without_fragment in visited_urls:
+            continue
+        
+        visited_urls.add(url_without_fragment)
 
         # Update counter and current URL
         counter += 1
         counter_placeholder.text(f"Pages crawled: {counter}")
-        url_placeholder.text(f"Current page: {url}")
+        url_placeholder.text(f"Current page: {url_without_fragment}")
 
         try:
-            response = requests.get(url)
+            response = requests.get(url_without_fragment)
             soup = BeautifulSoup(response.content, "html.parser")
             for link in soup.find_all("a", href=True):
-                absolute_url = urljoin(url, link["href"])
-                if url_pattern.match(absolute_url):
-                    queue.append(absolute_url)
+                absolute_url = urljoin(url_without_fragment, link["href"])
+                parsed_absolute_url = urlparse(absolute_url)
+                absolute_url_without_fragment = parsed_absolute_url._replace(fragment='').geturl()
+                if url_pattern.match(absolute_url_without_fragment) and not any(absolute_url_without_fragment.endswith(suffix) for suffix in IGNORED_SUFFIXES):
+                    queue.append(absolute_url_without_fragment)
         except Exception as e:
-            failed_pages.append(url)
-            st.warning(f"Failed to crawl {url}: {str(e)}")
+            failed_pages.append(url_without_fragment)
+            st.warning(f"Failed to crawl {url_without_fragment}: {str(e)}")
 
     # Scraping with concurrency
     def scrape_url(url):
@@ -89,14 +105,17 @@ def get_page_text(url):
     content_type = response.headers.get('Content-Type', '').lower()
     
     if 'application/pdf' in content_type:
-        # Handle PDF content
-        pdf_content = response.content
-        pdf_document = fitz.open(stream=pdf_content, filetype="pdf")
-        text = ""
-        for page in pdf_document:
-            text += page.get_text()
-        pdf_document.close()
-        return text
+        if scrape_pdfs:
+            # Handle PDF content
+            pdf_content = response.content
+            pdf_document = fitz.open(stream=pdf_content, filetype="pdf")
+            text = ""
+            for page in pdf_document:
+                text += page.get_text()
+            pdf_document.close()
+            return text
+        else:
+            return "PDF content skipped as per user preference."
     else:
         # Handle HTML content (existing code)
         detected_encoding = chardet.detect(response.content)['encoding']
@@ -126,8 +145,16 @@ st.write("""
          https://aistudio.google.com, due to its high context window, is recommended as an LLM to paste large amount of text in 🙂
          """)
 
-# Add toggle for text preview
-show_preview = st.checkbox("Show text preview", value=False)
+# Create two columns for checkboxes
+col1, col2 = st.columns(2)
+
+# Add toggle for text preview in the first column
+with col1:
+    show_preview = st.checkbox("Show text preview", value=False)
+
+# Add toggle for PDF scraping in the second column
+with col2:
+    scrape_pdfs = st.checkbox("Scrape PDFs", value=True)
 
 root_url = st.text_input("Enter Root Domain (e.g., https://docs.polymarket.com/)", "")
 
