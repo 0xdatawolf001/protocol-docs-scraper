@@ -8,6 +8,9 @@ import re
 from st_copy_to_clipboard import st_copy_to_clipboard
 import chardet
 import fitz
+import json
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
 
 @st.cache_data
 def crawl_and_scrape(root_domain):
@@ -30,9 +33,7 @@ def crawl_and_scrape(root_domain):
     # Create a regex pattern to match URLs that start with the base_url and contain the root_path
     url_pattern = re.compile(f"^{re.escape(base_url)}{re.escape(root_path)}(/|$)")
 
-    df = pd.DataFrame(columns=["full_weblink", "main_body_text"])
-    df.index.name = "index"
-
+    # Crawling
     while queue:
         url = queue.pop(0)
         if not url_pattern.match(url) or url in visited_urls:
@@ -42,24 +43,41 @@ def crawl_and_scrape(root_domain):
 
         # Update counter and current URL
         counter += 1
-        counter_placeholder.text(f"Pages processed: {counter}")
+        counter_placeholder.text(f"Pages crawled: {counter}")
         url_placeholder.text(f"Current page: {url}")
 
         try:
-            page_text = get_page_text(url)
-            new_row = pd.DataFrame([[url, page_text]], columns=["full_weblink", "main_body_text"])
-            df = pd.concat([df, new_row], ignore_index=True)
-            df = df.drop_duplicates(subset='main_body_text', keep='first')
-
-            soup = BeautifulSoup(requests.get(url).content, "html.parser")
+            response = requests.get(url)
+            soup = BeautifulSoup(response.content, "html.parser")
             for link in soup.find_all("a", href=True):
                 absolute_url = urljoin(url, link["href"])
                 if url_pattern.match(absolute_url):
                     queue.append(absolute_url)
-
         except Exception as e:
             failed_pages.append(url)
-            st.warning(f"Failed to process {url}: {str(e)}")
+            st.warning(f"Failed to crawl {url}: {str(e)}")
+
+    # Scraping with concurrency
+    def scrape_url(url):
+        try:
+            page_text = get_page_text(url)
+            return url, page_text
+        except Exception as e:
+            failed_pages.append(url)
+            st.warning(f"Failed to scrape {url}: {str(e)}")
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_to_url = {executor.submit(scrape_url, url): url for url in visited_urls}
+        for future in concurrent.futures.as_completed(future_to_url):
+            result = future.result()
+            if result:
+                data.append(result)
+
+    # Create DataFrame and deduplicate
+    df = pd.DataFrame(data, columns=["full_weblink", "main_body_text"])
+    df = df.drop_duplicates(subset='main_body_text', keep='first')
+    df.index.name = "index"
 
     return df, failed_pages
 
@@ -132,6 +150,7 @@ if st.session_state.df is not None:
     cleaned_url = re.sub(r'https?://', '', root_url).rstrip('/').replace('.', '_')
     file_name_csv = f"{cleaned_url}_{str(round(time.time()))}.csv"
     file_name_txt = f"{cleaned_url}_{str(round(time.time()))}.txt"
+    file_name_json = f"{cleaned_url}_{str(round(time.time()))}.json"
     
     csv = st.session_state.df.to_csv().encode('utf-8')
     st.download_button(
@@ -148,6 +167,16 @@ if st.session_state.df is not None:
         data=txt,
         file_name=file_name_txt,
         mime='text/plain',
+    )
+
+    # New button for JSON download
+    json_data = st.session_state.df.set_index('full_weblink')['main_body_text'].to_dict()
+    json_str = json.dumps(json_data, ensure_ascii=False, indent=2)
+    st.download_button(
+        label="Download Data as JSON",
+        data=json_str,
+        file_name=file_name_json,
+        mime='application/json',
     )
 
     if show_preview:
