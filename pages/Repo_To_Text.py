@@ -17,16 +17,17 @@ def clone_repo(repo_url, temp_dir):
 
 # Cache the function to preserve data across reruns
 @st.cache_data
-def extract_files(temp_dir):
+def extract_files(temp_dir, file_types):
     extracted_content = {}
     for root, dirs, files in os.walk(temp_dir):
         for file in files:
             file_path = os.path.join(root, file)
             relative_path = os.path.relpath(file_path, temp_dir)
             
-            # Check if the file is a .sol or .md file, or a JSON file under an artifacts folder
-            if file.endswith('.sol') or file.endswith('.md') or \
-               (file.endswith('.json') and 'artifacts' in relative_path.split(os.sep)):
+            # Check if the file matches the selected types
+            if (('md' in file_types and file.endswith('.md')) or
+                ('sol' in file_types and file.endswith('.sol')) or
+                ('json' in file_types and file.endswith('.json') and 'artifacts' in relative_path.split(os.sep))):
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     extracted_content[relative_path] = f.read()
     return extracted_content
@@ -49,6 +50,13 @@ st.write("""
          ...
          """)
 repo_urls = st.text_area("GitHub URLs")
+
+# Add file type selection
+file_types = st.multiselect(
+    "Select file types to scrape (default is all):",
+    ['md', 'sol', 'json'],
+    default=['md', 'sol', 'json']
+)
 
 # Add this near the top of your script, after the imports
 if 'previous_repo_urls' not in st.session_state:
@@ -75,7 +83,7 @@ if st.button("Process Repositories"):
             with tempfile.TemporaryDirectory() as temp_dir:
                 status_text.text(f"Scraping {repo_url} ({i+1}/{len(repo_list)})")
                 if clone_repo(repo_url, temp_dir):
-                    extracted_content = extract_files(temp_dir)  
+                    extracted_content = extract_files(temp_dir, file_types)  
                     repo_name = repo_url.split('/')[-1].replace('.git', '')
                     st.session_state.all_extracted_content[repo_name] = extracted_content
                 else:
