@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 import pandas as pd
 import time
 import re
@@ -13,19 +13,18 @@ import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
 # Add this near the top of the script
-IGNORED_SUFFIXES = ['.rst']  # Add more suffixes here as needed
+IGNORED_SUFFIXES = ['.rst','.png','.gif','.jpeg','.jpg']  # Add more suffixes here as needed
 
 @st.cache_data
-def crawl_and_scrape(root_domain):
+def crawl_and_scrape(root_domain, max_depth=5, max_consecutive_backtrack=20):
     visited_urls = set()
-    queue = [root_domain]
+    queue = [(root_domain, [root_domain], 0)]  # (url, breadcrumb, depth)
     data = []
     failed_pages = []
 
     # Create placeholders for counter and current URL
     counter_placeholder = st.empty()
     url_placeholder = st.empty()
-
     counter = 0
 
     # Parse the root_domain to get the base and the path
@@ -36,23 +35,41 @@ def crawl_and_scrape(root_domain):
     # Create a regex pattern to match URLs that start with the base_url and contain the root_path
     url_pattern = re.compile(f"^{re.escape(base_url)}{re.escape(root_path)}(/|$)")
 
-    # Crawling
+    def normalize_url(url):
+        parsed = urlparse(url)
+        path = parsed.path.split('/')
+        normalized_path = []
+        for segment in path:
+            if segment == '.' or segment == '':
+                continue
+            if segment == '..':
+                if normalized_path:
+                    normalized_path.pop()
+            else:
+                normalized_path.append(segment)
+        normalized_url = urlunparse((parsed.scheme, parsed.netloc, '/'.join(normalized_path), parsed.params, parsed.query, ''))
+        return normalized_url
+
+    consecutive_backtrack = 0
     while queue:
-        url = queue.pop(0)
-        
+        url, breadcrumb, depth = queue.pop(0)
+
+        # Normalize the URL
+        url = normalize_url(url)
+
         # Parse the URL
         parsed_url = urlparse(url)
-        
+
         # Remove the fragment from the URL
         url_without_fragment = parsed_url._replace(fragment='').geturl()
-        
+
         # Check if the URL should be ignored based on its suffix
         if any(url_without_fragment.endswith(suffix) for suffix in IGNORED_SUFFIXES):
             continue
-        
+
         if not url_pattern.match(url_without_fragment) or url_without_fragment in visited_urls:
             continue
-        
+
         visited_urls.add(url_without_fragment)
 
         # Update counter and current URL
@@ -61,15 +78,46 @@ def crawl_and_scrape(root_domain):
         url_placeholder.text(f"Current page: {url_without_fragment}")
 
         try:
-            response = requests.get(url_without_fragment)
+            response = requests.get(url_without_fragment, timeout=10)
             soup = BeautifulSoup(response.content, "html.parser")
-            for link in soup.find_all("a", href=True):
-                absolute_url = urljoin(url_without_fragment, link["href"])
-                parsed_absolute_url = urlparse(absolute_url)
-                absolute_url_without_fragment = parsed_absolute_url._replace(fragment='').geturl()
-                if url_pattern.match(absolute_url_without_fragment) and not any(absolute_url_without_fragment.endswith(suffix) for suffix in IGNORED_SUFFIXES):
-                    queue.append(absolute_url_without_fragment)
-        except Exception as e:
+
+            # Only process links if we haven't reached the maximum depth
+            if depth < max_depth:
+                new_links = []
+                for link in soup.find_all("a", href=True):
+                    absolute_url = urljoin(url_without_fragment, link["href"])
+                    absolute_url = normalize_url(absolute_url)
+                    parsed_absolute_url = urlparse(absolute_url)
+                    absolute_url_without_fragment = parsed_absolute_url._replace(fragment='').geturl()
+
+                    if url_pattern.match(absolute_url_without_fragment) and not any(absolute_url_without_fragment.endswith(suffix) for suffix in IGNORED_SUFFIXES):
+                        new_breadcrumb = breadcrumb + [absolute_url_without_fragment]
+                        new_links.append((absolute_url_without_fragment, new_breadcrumb, depth + 1))
+
+                if new_links:
+                    queue.extend(new_links)
+                    consecutive_backtrack = 0
+                else:
+                    # If no new links, backtrack
+                    consecutive_backtrack += 1
+                    if consecutive_backtrack > max_consecutive_backtrack:
+                        # Aggressive backtracking
+                        while breadcrumb and len(breadcrumb) > 1:  # Ensure we don't go beyond root
+                            breadcrumb.pop()
+                            depth -= 1
+                            if breadcrumb[-1] not in visited_urls:
+                                queue.insert(0, (breadcrumb[-1], breadcrumb.copy(), depth))
+                                consecutive_backtrack = 0
+                                break
+                    else:
+                        # Normal backtracking
+                        if breadcrumb:
+                            breadcrumb.pop()
+                            depth -= 1
+                            if breadcrumb:
+                                queue.insert(0, (breadcrumb[-1], breadcrumb.copy(), depth))
+
+        except requests.RequestException as e:
             failed_pages.append(url_without_fragment)
             st.warning(f"Failed to crawl {url_without_fragment}: {str(e)}")
 
