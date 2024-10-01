@@ -43,7 +43,9 @@ st.title("GitHub Repository Extractor")
 
 st.write("""
          Enter GitHub repository URLs (one per line):
+         
          www.example.com
+         
          www.example2.com
          ...
          """)
