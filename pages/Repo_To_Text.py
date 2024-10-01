@@ -40,6 +40,7 @@ def get_snippet(text, max_length=500):
 ignore_list = ['.git', '.env', '.gitignore', 'node_modules', '__pycache__', '.vscode', '.idea','requirements.txt']
 
 st.title("GitHub Repository Extractor")
+st.subheader("Put the entire code base in one file for easier/faster copy and pasting to LLMs")
 
 st.write("""
          Enter GitHub repository URLs (one per line):
