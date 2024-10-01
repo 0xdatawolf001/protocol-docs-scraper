@@ -89,6 +89,8 @@ if st.session_state.all_extracted_content:
     with st.spinner("Processing content..."):
         text_content = ""
         display_content = ""
+        repo_names = list(st.session_state.all_extracted_content.keys())
+        
         for repo, files in st.session_state.all_extracted_content.items():
             text_content += f"\n\n{'=' * 20} {repo} {'=' * 20}\n\n"
             display_content += f"\n\n{'=' * 20} {repo} {'=' * 20}\n\n"
@@ -97,25 +99,30 @@ if st.session_state.all_extracted_content:
                 text_content += content
                 display_content += f"\n\n{'=' * 20} {file_path} {'=' * 20}\n\n"
                 display_content += get_snippet(content)
-            break
+
+        # Generate file names based on the number of repos
+        if len(repo_names) == 1:
+            file_name = repo_names[0]
+        else:
+            file_name = "_".join(repo_names)
 
         # Download as text file
         text_file = BytesIO(text_content.encode())
-        repo_name = list(st.session_state.all_extracted_content.keys())[0]
         st.download_button(
             label="Download as Text File",
             data=text_file,
-            file_name=f"{repo_name}.txt",
+            file_name=f"{file_name}.txt",
             mime="text/plain"
         )
 
         # Download as JSON
-        json_content = json.dumps(st.session_state.all_extracted_content, indent=2)
+        json_content = json.dumps({repo: {file_path: content for file_path, content in files.items()} 
+                                   for repo, files in st.session_state.all_extracted_content.items()}, indent=2)
         json_file = BytesIO(json_content.encode())
         st.download_button(
             label="Download as JSON",
             data=json_file,
-            file_name=f"{repo_name}.json",
+            file_name=f"{file_name}.json",
             mime="application/json"
         )
 
