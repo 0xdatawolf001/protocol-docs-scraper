@@ -17,15 +17,16 @@ def clone_repo(repo_url, temp_dir):
 
 # Cache the function to preserve data across reruns
 @st.cache_data
-def extract_files(temp_dir, ignore_list):
+def extract_files(temp_dir):
     extracted_content = {}
     for root, dirs, files in os.walk(temp_dir):
-        # Remove ignored directories
-        dirs[:] = [d for d in dirs if d not in ignore_list]
         for file in files:
-            if file not in ignore_list:
-                file_path = os.path.join(root, file)
-                relative_path = os.path.relpath(file_path, temp_dir)
+            file_path = os.path.join(root, file)
+            relative_path = os.path.relpath(file_path, temp_dir)
+            
+            # Check if the file is a .sol or .md file, or a JSON file under an artifacts folder
+            if file.endswith('.sol') or file.endswith('.md') or \
+               (file.endswith('.json') and 'artifacts' in relative_path.split(os.sep)):
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     extracted_content[relative_path] = f.read()
     return extracted_content
@@ -35,9 +36,6 @@ def get_snippet(text, max_length=500):
     if len(text) <= max_length:
         return text
     return text[:max_length] + "..."
-
-# List of files and directories to ignore
-ignore_list = ['.git', '.env', '.gitignore', 'node_modules', '__pycache__', '.vscode', '.idea','requirements.txt']
 
 st.title("GitHub Repository Extractor")
 st.subheader("Put the entire code base in one file for easier/faster copy and pasting to LLMs")
@@ -77,7 +75,7 @@ if st.button("Process Repositories"):
             with tempfile.TemporaryDirectory() as temp_dir:
                 status_text.text(f"Scraping {repo_url} ({i+1}/{len(repo_list)})")
                 if clone_repo(repo_url, temp_dir):
-                    extracted_content = extract_files(temp_dir, ignore_list)
+                    extracted_content = extract_files(temp_dir)  
                     repo_name = repo_url.split('/')[-1].replace('.git', '')
                     st.session_state.all_extracted_content[repo_name] = extracted_content
                 else:
@@ -89,7 +87,6 @@ if st.button("Process Repositories"):
 if st.session_state.all_extracted_content:
     st.subheader("Extracted Content")
     with st.spinner("Processing content..."):
-    
         text_content = ""
         display_content = ""
         for repo, files in st.session_state.all_extracted_content.items():
@@ -100,6 +97,7 @@ if st.session_state.all_extracted_content:
                 text_content += content
                 display_content += f"\n\n{'=' * 20} {file_path} {'=' * 20}\n\n"
                 display_content += get_snippet(content)
+            break
 
         # Download as text file
         text_file = BytesIO(text_content.encode())
@@ -130,7 +128,7 @@ if st.session_state.all_extracted_content:
                 st.info("Click the 'Download as Text File' button above to save the content.")
 
         # Display snippet
+        st.write(f"""The text content is {len(text_content)} words long""")
         st.text_area("Content preview (snippet)", display_content, height=300, disabled=True)
-        st.write(f"""The copied content has len({text_content}) characters""")
 
 st.write("Note that if your text is huge you will get an Error and I would recommend that you download the text file instead")
