@@ -131,5 +131,6 @@ if st.session_state.all_extracted_content:
 
         # Display snippet
         st.text_area("Content preview (snippet)", display_content, height=300, disabled=True)
+        st.write(f"""The copied content has len({text_content}) characters""")
 
 st.write("Note that if your text is huge you will get an Error and I would recommend that you download the text file instead")
