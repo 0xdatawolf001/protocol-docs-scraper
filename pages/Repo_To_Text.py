@@ -41,7 +41,12 @@ ignore_list = ['.git', '.env', '.gitignore', 'node_modules', '__pycache__', '.vs
 
 st.title("GitHub Repository Extractor")
 
-st.write("Enter GitHub repository URLs (one per line):")
+st.write("""
+         Enter GitHub repository URLs (one per line):
+         www.example.com
+         www.example2.com
+         ...
+         """)
 repo_urls = st.text_area("GitHub URLs")
 
 # Add this near the top of your script, after the imports
@@ -124,4 +129,4 @@ if st.session_state.all_extracted_content:
         # Display snippet
         st.text_area("Content preview (snippet)", display_content, height=300, disabled=True)
 
-st.write("Note: That if your text is huge you will get an Error and I would recommend that you download the text file instead")
+st.write("Note that if your text is huge you will get an Error and I would recommend that you download the text file instead")
