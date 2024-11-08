@@ -13,7 +13,14 @@ import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
 # Add this near the top of the script
-IGNORED_SUFFIXES = ['.rst','.png','.gif','.jpeg','.jpg']  # Add more suffixes here as needed
+IGNORED_SUFFIXES = [
+    ".rst",
+    ".png",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+]  # Add more suffixes here as needed
+
 
 @st.cache_data
 def crawl_and_scrape(root_domain, max_depth=5, max_consecutive_backtrack=20):
@@ -30,24 +37,33 @@ def crawl_and_scrape(root_domain, max_depth=5, max_consecutive_backtrack=20):
     # Parse the root_domain to get the base and the path
     parsed_root = urlparse(root_domain)
     base_url = f"{parsed_root.scheme}://{parsed_root.netloc}"
-    root_path = parsed_root.path.rstrip('/')
+    root_path = parsed_root.path.rstrip("/")
 
     # Create a regex pattern to match URLs that start with the base_url and contain the root_path
     url_pattern = re.compile(f"^{re.escape(base_url)}{re.escape(root_path)}(/|$)")
 
     def normalize_url(url):
         parsed = urlparse(url)
-        path = parsed.path.split('/')
+        path = parsed.path.split("/")
         normalized_path = []
         for segment in path:
-            if segment == '.' or segment == '':
+            if segment == "." or segment == "":
                 continue
-            if segment == '..':
+            if segment == "..":
                 if normalized_path:
                     normalized_path.pop()
             else:
                 normalized_path.append(segment)
-        normalized_url = urlunparse((parsed.scheme, parsed.netloc, '/'.join(normalized_path), parsed.params, parsed.query, ''))
+        normalized_url = urlunparse(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                "/".join(normalized_path),
+                parsed.params,
+                parsed.query,
+                "",
+            )
+        )
         return normalized_url
 
     consecutive_backtrack = 0
@@ -61,13 +77,16 @@ def crawl_and_scrape(root_domain, max_depth=5, max_consecutive_backtrack=20):
         parsed_url = urlparse(url)
 
         # Remove the fragment from the URL
-        url_without_fragment = parsed_url._replace(fragment='').geturl()
+        url_without_fragment = parsed_url._replace(fragment="").geturl()
 
         # Check if the URL should be ignored based on its suffix
         if any(url_without_fragment.endswith(suffix) for suffix in IGNORED_SUFFIXES):
             continue
 
-        if not url_pattern.match(url_without_fragment) or url_without_fragment in visited_urls:
+        if (
+            not url_pattern.match(url_without_fragment)
+            or url_without_fragment in visited_urls
+        ):
             continue
 
         visited_urls.add(url_without_fragment)
@@ -88,11 +107,18 @@ def crawl_and_scrape(root_domain, max_depth=5, max_consecutive_backtrack=20):
                     absolute_url = urljoin(url_without_fragment, link["href"])
                     absolute_url = normalize_url(absolute_url)
                     parsed_absolute_url = urlparse(absolute_url)
-                    absolute_url_without_fragment = parsed_absolute_url._replace(fragment='').geturl()
+                    absolute_url_without_fragment = parsed_absolute_url._replace(
+                        fragment=""
+                    ).geturl()
 
-                    if url_pattern.match(absolute_url_without_fragment) and not any(absolute_url_without_fragment.endswith(suffix) for suffix in IGNORED_SUFFIXES):
+                    if url_pattern.match(absolute_url_without_fragment) and not any(
+                        absolute_url_without_fragment.endswith(suffix)
+                        for suffix in IGNORED_SUFFIXES
+                    ):
                         new_breadcrumb = breadcrumb + [absolute_url_without_fragment]
-                        new_links.append((absolute_url_without_fragment, new_breadcrumb, depth + 1))
+                        new_links.append(
+                            (absolute_url_without_fragment, new_breadcrumb, depth + 1)
+                        )
 
                 if new_links:
                     queue.extend(new_links)
@@ -102,11 +128,15 @@ def crawl_and_scrape(root_domain, max_depth=5, max_consecutive_backtrack=20):
                     consecutive_backtrack += 1
                     if consecutive_backtrack > max_consecutive_backtrack:
                         # Aggressive backtracking
-                        while breadcrumb and len(breadcrumb) > 1:  # Ensure we don't go beyond root
+                        while (
+                            breadcrumb and len(breadcrumb) > 1
+                        ):  # Ensure we don't go beyond root
                             breadcrumb.pop()
                             depth -= 1
                             if breadcrumb[-1] not in visited_urls:
-                                queue.insert(0, (breadcrumb[-1], breadcrumb.copy(), depth))
+                                queue.insert(
+                                    0, (breadcrumb[-1], breadcrumb.copy(), depth)
+                                )
                                 consecutive_backtrack = 0
                                 break
                     else:
@@ -115,7 +145,9 @@ def crawl_and_scrape(root_domain, max_depth=5, max_consecutive_backtrack=20):
                             breadcrumb.pop()
                             depth -= 1
                             if breadcrumb:
-                                queue.insert(0, (breadcrumb[-1], breadcrumb.copy(), depth))
+                                queue.insert(
+                                    0, (breadcrumb[-1], breadcrumb.copy(), depth)
+                                )
 
         except requests.RequestException as e:
             failed_pages.append(url_without_fragment)
@@ -140,19 +172,20 @@ def crawl_and_scrape(root_domain, max_depth=5, max_consecutive_backtrack=20):
 
     # Create DataFrame and deduplicate
     df = pd.DataFrame(data, columns=["full_weblink", "main_body_text"])
-    df = df.drop_duplicates(subset='main_body_text', keep='first')
+    df = df.drop_duplicates(subset="main_body_text", keep="first")
     df.index.name = "index"
 
     return df, failed_pages
+
 
 @st.cache_resource
 def get_page_text(url):
     response = requests.get(url, timeout=10)
     response.raise_for_status()
-    
-    content_type = response.headers.get('Content-Type', '').lower()
-    
-    if 'application/pdf' in content_type:
+
+    content_type = response.headers.get("Content-Type", "").lower()
+
+    if "application/pdf" in content_type:
         if scrape_pdfs:
             # Handle PDF content
             pdf_content = response.content
@@ -166,21 +199,24 @@ def get_page_text(url):
             return "PDF content skipped as per user preference."
     else:
         # Handle HTML content (existing code)
-        detected_encoding = chardet.detect(response.content)['encoding']
-        
+        detected_encoding = chardet.detect(response.content)["encoding"]
+
         try:
-            decoded_content = response.content.decode(detected_encoding or 'utf-8')
+            decoded_content = response.content.decode(detected_encoding or "utf-8")
         except UnicodeDecodeError:
-            decoded_content = response.content.decode('utf-8', errors='replace')
-        
+            decoded_content = response.content.decode("utf-8", errors="replace")
+
         soup = BeautifulSoup(decoded_content, "html.parser")
         for script in soup(["script", "style"]):
             script.extract()
         text = soup.get_text(" ", strip=True)
         return text
 
+
 st.title("Protocol Documentation Scraper")
-st.header("Scrape and consolidate protocol docs to feed into an LLM for faster understanding")
+st.header(
+    "Scrape and consolidate protocol docs to feed into an LLM for faster understanding"
+)
 st.write("""
          Some use cases: 
          1) Ask questions
@@ -206,7 +242,7 @@ with col2:
 
 root_url = st.text_input("Enter Root Domain (e.g., https://docs.polymarket.com/)", "")
 
-if 'df' not in st.session_state:
+if "df" not in st.session_state:
     st.session_state.df = None
 
 if st.button("Scrape"):
@@ -220,38 +256,49 @@ if st.button("Scrape"):
 if st.session_state.df is not None:
     st.write("### Scraped Data Table")
     st.write("First 20 results shown")
-    st.dataframe(st.session_state.df.head(20).style.set_table_styles([{'selector': 'table', 'props': [('width', 'max-content'), ('overflow-x','auto')]}]))
+    st.dataframe(
+        st.session_state.df.head(20).style.set_table_styles(
+            [
+                {
+                    "selector": "table",
+                    "props": [("width", "max-content"), ("overflow-x", "auto")],
+                }
+            ]
+        )
+    )
 
-    cleaned_url = re.sub(r'https?://', '', root_url).rstrip('/').replace('.', '_')
+    cleaned_url = re.sub(r"https?://", "", root_url).rstrip("/").replace(".", "_")
     file_name_csv = f"{cleaned_url}_{str(round(time.time()))}.csv"
     file_name_txt = f"{cleaned_url}_{str(round(time.time()))}.txt"
     file_name_json = f"{cleaned_url}_{str(round(time.time()))}.json"
-    
-    csv = st.session_state.df.to_csv().encode('utf-8')
+
+    csv = st.session_state.df.to_csv().encode("utf-8")
     st.download_button(
         label="Download Data as CSV",
         data=csv,
         file_name=file_name_csv,
-        mime='text/csv',
+        mime="text/csv",
     )
 
-    all_text = "\n".join(st.session_state.df['main_body_text'])
-    txt = all_text.encode('utf-8')
+    all_text = "\n".join(st.session_state.df["main_body_text"])
+    txt = all_text.encode("utf-8")
     st.download_button(
         label="Download Data as txt file",
         data=txt,
         file_name=file_name_txt,
-        mime='text/plain',
+        mime="text/plain",
     )
 
     # New button for JSON download
-    json_data = st.session_state.df.set_index('full_weblink')['main_body_text'].to_dict()
+    json_data = st.session_state.df.set_index("full_weblink")[
+        "main_body_text"
+    ].to_dict()
     json_str = json.dumps(json_data, ensure_ascii=False, indent=2)
     st.download_button(
         label="Download Data as JSON",
         data=json_str,
         file_name=file_name_json,
-        mime='application/json',
+        mime="application/json",
     )
 
     if show_preview:
@@ -260,7 +307,7 @@ if st.session_state.df is not None:
     if st_copy_to_clipboard(all_text):
         st.success("Text copied to clipboard!")
 
-    if 'failed_pages' in locals():
+    if "failed_pages" in locals():
         if failed_pages:
             with st.expander("Failed Pages:"):
                 st.warning("Some pages failed to scrape:")
